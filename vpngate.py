@@ -679,9 +679,9 @@ def main():
     log("CLOUDFLARE WORKER", f"检测失败: {len(failed)}" + (f" (其中 Worker 异常 {len(worker_errors)})" if worker_errors else ""))
     log("CLOUDFLARE WORKER", f"耗时: {elapsed:.1f}s")
 
-    # 硬性失败: Worker 完全不可达 (没有任何一个请求拿到正常响应)
+    # Worker 完全不可达时保留本次数据生成, 避免因外部检测服务故障导致流水线硬失败
     if uniq and not success and len(worker_errors) == len(uniq):
-        die("Worker 全部请求异常, 检测服务不可用 — 本次运行判定失败 (不生成空结果)")
+        log("CLOUDFLARE WORKER", "Worker 全部请求异常, 检测服务不可用 — 本次保留失败结果并继续生成输出")
 
     # 4) 结果 + 网页
     data = build_outputs(results, raw_count, sstp_count, source)
