@@ -51,7 +51,7 @@ VPNGATE_MIRROR = os.environ.get(
     "https://raw.githubusercontent.com/fdciabdul/Vpngate-Scraper-API/main/json/data.json",
 )
 # 已部署的 Cloudflare Worker 检测接口 (GET /check?proxyip=host:port, 实测确认)
-WORKER_CHECK_URL = os.environ.get("CHECK_WORKER", "https://http://home.cocomou1235.workers.dev/check?sstp=vpn:vpn@")
+WORKER_CHECK_URL = os.environ.get("CHECK_WORKER", "https://check.socks5.cmliussss.net/check?sstp=vpn:vpn@")
 CONCURRENCY = max(1, int(os.environ.get("CHECK_CONCURRENCY", "32")))   # 与 Worker 网页端一致的并发模型
 CHECK_TIMEOUT = float(os.environ.get("CHECK_TIMEOUT", "90"))          # 单请求客户端超时 (秒)
 MAX_CHECK_NODES = int(os.environ.get("MAX_CHECK_NODES", "0"))         # 0=不限; 本地测试可设小值
@@ -407,7 +407,7 @@ def build_outputs(results, raw_count, sstp_count, source):
     return data
 
 
-CHAIN_URL = os.environ.get("CHAIN_URL", "https://jerylihub.github.io/gate/chains.txt")
+CHAIN_URL = os.environ.get("CHAIN_URL", "https://gdfirs.github.io/hoem/chains.txt")
 
 
 def build_chains_text(data):
@@ -466,27 +466,35 @@ EDGE_HOSTS = [
     if h.strip()
 ]
 
-HOSTS_URL = os.environ.get("HOSTS_URL", "https://jerylihub.github.io/gate/hosts.txt")
+HOSTS_URL = os.environ.get("HOSTS_URL", "https://gdfirs.github.io/hoem/hosts.txt")
 
 
-def build_hosts_text(data):
-    """生成可直接粘贴到 edgetunnel 后台「自定义优选IP」框的清单。
-    每行 = 入口地址#名字$sstp://... ; 名字固定, 底下 SSTP 节点每 30 分钟自动换。"""
+def build_hosts_text(data, with_comments=True):
+    """生成 edgetunnel「自定义优选IP」清单。
+    每行 = 入口地址#名字$sstp://... ; 名字固定, 底下 SSTP 节点每 30 分钟自动换。
+
+    with_comments=True  -> 手动粘贴版(带注释头与国家分隔注释), 即 hosts.txt
+    with_comments=False -> 纯节点行版, 供 edgetunnel 当「优选API」自动拉取, 即 api.txt
+        (edgetunnel 的优选API 解析器只过滤空行, 不跳过 '#' 开头的注释行;
+         注释会被解析成 ':443#...' 这类垃圾节点, 所以自动拉取版必须零注释)
+    """
     countries = data["countries"]
     # 入口: 默认用 7 个实测可用优选域名循环分配; 可用 HOSTS_ENTRY 覆盖(逗号分隔)
     _entry = os.environ.get("HOSTS_ENTRY", "").strip()
     edge = [e.strip() for e in _entry.split(",") if e.strip()] or EDGE_HOSTS or [f"{EDT_DOMAIN}:443"]
-    lines = [
-        "# edgetunnel「自定义优选IP」清单 (整段复制, 追加到后台现有内容后面)",
-        f"# 自动更新: {data['generated_at']} (每 30 分钟重新检测)",
-        f"# 固定地址: {HOSTS_URL}",
-        "# 每行 = 入口地址#名字$sstp://vpn:vpn@节点:端口",
-        "# 入口用 7 个实测可用优选域名循环分配",
-        "# 名字 = 国家-住宅/机房-编号, 直接区分住宅与机房",
-        "# 名字固定; 只有 $sstp:// 后面的节点地址每 30 分钟自动更换",
-        "# 账号密码固定 vpn:vpn ; 节点端口必须保留",
-        "# ========================================================",
-    ]
+    lines = []
+    if with_comments:
+        lines = [
+            "# edgetunnel「自定义优选IP」清单 (整段复制, 追加到后台现有内容后面)",
+            f"# 自动更新: {data['generated_at']} (每 30 分钟重新检测)",
+            f"# 固定地址: {HOSTS_URL}",
+            "# 每行 = 入口地址#名字$sstp://vpn:vpn@节点:端口",
+            "# 入口用 7 个实测可用优选域名循环分配",
+            "# 名字 = 国家-住宅/机房-编号, 直接区分住宅与机房",
+            "# 名字固定; 只有 $sstp:// 后面的节点地址每 30 分钟自动更换",
+            "# 账号密码固定 vpn:vpn ; 节点端口必须保留",
+            "# ========================================================",
+        ]
     idx = 0
     ordered = sorted(
         countries.items(),
@@ -504,10 +512,11 @@ def build_hosts_text(data):
                 n.get("host") or "",
             ),
         )
-        lines.append("")
-        lines.append(
-            f"# ---- {zh} {code} · {grp['count']} 节点 (住宅 {grp['residential']} / 机房 {grp['datacenter']}) ----"
-        )
+        if with_comments:
+            lines.append("")
+            lines.append(
+                f"# ---- {zh} {code} · {grp['count']} 节点 (住宅 {grp['residential']} / 机房 {grp['datacenter']}) ----"
+            )
         res_nodes = [n for n in nodes if n.get("residential") == "residential"]
         dc_nodes = [n for n in nodes if n.get("residential") != "residential"]
         for i, n in enumerate(res_nodes, 1):
@@ -521,11 +530,22 @@ def build_hosts_text(data):
     return "\n".join(lines) + "\n"
 
 
+API_URL = os.environ.get("API_URL", "https://gdfirs.github.io/hoem/api.txt")
+
+
+def build_api_text(data):
+    """生成 edgetunnel「优选API」自动拉取清单 (纯节点行, 零注释)。
+    用法: 在 edgetunnel 后台「自定义优选IP」框里填一行 API_URL 即可 —— 该行以 https://
+    开头, edgetunnel 会把它当作优选API, 每次生成订阅时实时拉取 (见 _worker.js 请求优选API)。
+    这样 SSTP 节点每 30 分钟自动更换, 无需再手动粘贴。"""
+    return build_hosts_text(data, with_comments=False)
+
+
 # edgetunnel 完整订阅 (vless://) 配置
 EDT_UUID = os.environ.get("EDT_UUID", "d970d9c9-7787-4c33-8807-cef6c143dd35")
 EDT_DOMAIN = os.environ.get("EDT_DOMAIN", "tun.jett-speedtest.l.cd")
 EDT_FINGERPRINT = os.environ.get("EDT_FINGERPRINT", "chrome")
-SUB_URL = os.environ.get("SUB_URL", "https://jerylihub.github.io/gate/sub.txt")
+SUB_URL = os.environ.get("SUB_URL", "https://gdfirs.github.io/hoem/sub.txt")
 
 
 def _b64_secret_encode(plaintext, secret):
@@ -632,11 +652,17 @@ def write_outputs(data):
     with open(hosts_path, "w", encoding="utf-8") as f:
         f.write(build_hosts_text(data))
 
+    # edgetunnel「优选API」自动拉取清单 (纯节点行, 零注释)
+    # 后台「自定义优选IP」框里填一行 API_URL 即可永久自动更新, 无需再手动粘贴
+    api_path = os.path.join(PUBLIC_DIR, "api.txt")
+    with open(api_path, "w", encoding="utf-8") as f:
+        f.write(build_api_text(data))
+
     # 完整 vless:// 订阅 (填进后台「订阅链接」URL, 客户端自动轮换)
     sub_path = os.path.join(PUBLIC_DIR, "sub.txt")
     with open(sub_path, "w", encoding="utf-8") as f:
         f.write(build_sub_text(data))
-    return data_path, html_path, chains_path, hosts_path, sub_path
+    return data_path, html_path, chains_path, hosts_path, api_path, sub_path
 
 
 # ---------------------------------------------------------------------------
@@ -688,11 +714,12 @@ def main():
     log("RESULT", f"可用节点: {len(success)}")
     log("RESULT", f"国家数量: {data['stats']['countries']}")
 
-    data_path, html_path, chains_path, hosts_path, sub_path = write_outputs(data)
+    data_path, html_path, chains_path, hosts_path, api_path, sub_path = write_outputs(data)
     log("WEBSITE", f"生成 {os.path.relpath(data_path, REPO_DIR)}")
     log("WEBSITE", f"生成 {os.path.relpath(html_path, REPO_DIR)}")
     log("WEBSITE", f"生成 {os.path.relpath(chains_path, REPO_DIR)}")
     log("WEBSITE", f"生成 {os.path.relpath(hosts_path, REPO_DIR)}")
+    log("WEBSITE", f"生成 {os.path.relpath(api_path, REPO_DIR)}  <- edgetunnel 优选API 自动拉取用")
     log("WEBSITE", f"生成 {os.path.relpath(sub_path, REPO_DIR)}")
     log("WEBSITE", "完成 (GitHub Pages 部署由 workflow 执行)")
 
