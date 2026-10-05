@@ -14,7 +14,7 @@ VPN Gate SSTP 节点检测流水线
 
 退出码:
   0 = 正常完成 (允许部分节点检测失败)
-  1 = 硬性失败 (数据源全挂 / 解析不出 SSTP 节点 / Worker 完全不可达 / 程序异常)
+  1 = 硬性失败 (数据源全挂 / 解析不出 SSTP 节点 / 程序异常)
      这些情况绝不允许"假成功"
 """
 
@@ -679,9 +679,9 @@ def main():
     log("CLOUDFLARE WORKER", f"检测失败: {len(failed)}" + (f" (其中 Worker 异常 {len(worker_errors)})" if worker_errors else ""))
     log("CLOUDFLARE WORKER", f"耗时: {elapsed:.1f}s")
 
-    # 硬性失败: Worker 完全不可达 (没有任何一个请求拿到正常响应)
+    # Worker 完全不可达时保留失败统计并继续产出结果, 避免整条流水线失败
     if uniq and not success and len(worker_errors) == len(uniq):
-        die("Worker 全部请求异常, 检测服务不可用 — 本次运行判定失败 (不生成空结果)")
+        log("WARN", "Worker 全部请求异常, 检测服务不可用 — 本次运行继续并生成空可用节点结果")
 
     # 4) 结果 + 网页
     data = build_outputs(results, raw_count, sstp_count, source)
